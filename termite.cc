@@ -1279,28 +1279,62 @@ auto get_config_string(std::bind(get_config<char *>, g_key_file_get_string,
 auto get_config_double(std::bind(get_config<double>, g_key_file_get_double,
                                  _1, _2, _3));
 
+#include "json.hpp"
+//#include <iostream>
+#include <fstream>
+
 static maybe<GdkRGBA> get_config_color(GKeyFile *config, const char *section, const char *key) {
-    if (auto s = get_config_string(config, section, key)) {
-        GdkRGBA color;
-        if (gdk_rgba_parse(&color, *s)) {
-            g_free(*s);
-            return color;
+  if (auto s = get_config_string(config, section, key)) {
+    GdkRGBA color;
+
+    std::string string_color{*s};
+
+    if (!string_color.compare(0, 1, "+")) {
+      using json = nlohmann::json;
+
+      std::ifstream file("/home/sebastien/.cache/wal/colors.json");
+      if (file.good()) {
+        json json;
+        file >> json;
+
+        auto special = json["special"];
+        auto colors = json["colors"];
+        auto color_name = string_color.substr(1);
+        std::string color_theme;
+
+        if (special.count(color_name)) {
+          color_theme = special[color_name];
         }
-        g_printerr("invalid color string: %s\n", *s);
-        g_free(*s);
+        else if (colors.count(color_name)) {
+          color_theme = colors[color_name];
+        }
+
+        if (color_theme.size() && gdk_rgba_parse(&color, color_theme.c_str())) {
+          g_free(*s);
+          return color;
+        }
+      }
     }
-    return {};
+
+    if (gdk_rgba_parse(&color, *s)) {
+      g_free(*s);
+      return color;
+    }
+    g_printerr("invalid color string: %s\n", *s);
+    g_free(*s);
+  }
+  return {};
 }
 
 static maybe<cairo_pattern_t *>
 get_config_cairo_color(GKeyFile *config, const char *group, const char *key) {
-    if (auto color = get_config_color(config, group, key)) {
-        return cairo_pattern_create_rgba(color->red,
-                                         color->green,
-                                         color->blue,
-                                         color->alpha);
-    }
-    return {};
+  if (auto color = get_config_color(config, group, key)) {
+    return cairo_pattern_create_rgba(color->red,
+                                     color->green,
+                                     color->blue,
+                                     color->alpha);
+  }
+  return {};
 }
 
 static void load_theme(GtkWindow *window, VteTerminal *vte, GKeyFile *config, hint_info &hints) {
